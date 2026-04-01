@@ -1,5 +1,5 @@
 """简单内存管理 - 对话历史"""
-from typing import List, Dict
+from typing import List, Dict, Any
 from dataclasses import dataclass, field
 
 
@@ -7,16 +7,31 @@ from dataclasses import dataclass, field
 class ConversationMemory:
     """对话记忆管理"""
     max_history: int = 20
-    messages: List[Dict[str, str]] = field(default_factory=list)
+    messages: List[Dict[str, Any]] = field(default_factory=list)
 
     def add_user_message(self, content: str):
         """添加用户消息"""
         self.messages.append({"role": "user", "content": content})
         self._trim_history()
 
-    def add_assistant_message(self, content: str):
+    def add_assistant_message(self, content: Any, tool_calls: List[Dict[str, Any]] = None):
         """添加助手消息"""
-        self.messages.append({"role": "assistant", "content": content})
+        message: Dict[str, Any] = {"role": "assistant", "content": content}
+        if tool_calls:
+            message["tool_calls"] = tool_calls
+        self.messages.append(message)
+        self._trim_history()
+
+    def add_tool_message(self, tool_call_id: str, name: str, content: str):
+        """添加工具返回消息"""
+        self.messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "name": name,
+                "content": content,
+            }
+        )
         self._trim_history()
 
     def _trim_history(self):
@@ -35,7 +50,7 @@ class ConversationMemory:
         """清空对话历史"""
         self.messages = []
 
-    def get_messages(self) -> List[Dict[str, str]]:
+    def get_messages(self) -> List[Dict[str, Any]]:
         """获取当前对话历史"""
         return self.messages.copy()
 

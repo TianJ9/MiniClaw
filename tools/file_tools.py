@@ -1,11 +1,46 @@
 """文件操作工具"""
 from pathlib import Path
-from typing import Any, Dict
 
 from .base import Tool, ToolResult
 
 
-class FileReadTool(Tool):
+class WorkspaceFileTool(Tool):
+    """带工作区沙箱的文件工具基类"""
+
+    workspace_root = Path.cwd().resolve()
+
+    def _resolve_workspace_path(self, path: str) -> Path:
+        """解析路径，并限制在当前工作区内"""
+        raw_path = Path(path).expanduser()
+        if raw_path.is_absolute():
+            resolved = raw_path.resolve()
+        else:
+            resolved = (self.workspace_root / raw_path).resolve()
+
+        if not self._is_in_workspace(resolved):
+            raise PermissionError(
+                f"路径超出工作区范围，当前仅允许访问: {self.workspace_root}"
+            )
+
+        if self._is_dangerous_path(resolved):
+            raise PermissionError("没有权限访问该路径")
+
+        return resolved
+
+    def _is_in_workspace(self, path: Path) -> bool:
+        """检查路径是否位于工作区内"""
+        try:
+            path.relative_to(self.workspace_root)
+            return True
+        except ValueError:
+            return False
+
+    def _is_dangerous_path(self, path: Path) -> bool:
+        """检查是否是受保护路径"""
+        return path.name == ".env"
+
+
+class FileReadTool(WorkspaceFileTool):
     """读取文件内容"""
 
     name = "file_read"
@@ -33,15 +68,7 @@ class FileReadTool(Tool):
         offset: int = None,
     ) -> ToolResult:
         try:
-            file_path = Path(path).resolve()
-
-            # 安全检查：防止读取敏感路径
-            if self._is_dangerous_path(file_path):
-                return ToolResult(
-                    success=False,
-                    output="",
-                    error="没有权限读取该路径",
-                )
+            file_path = self._resolve_workspace_path(path)
 
             if not file_path.exists():
                 return ToolResult(
@@ -83,6 +110,12 @@ class FileReadTool(Tool):
                 output=f"文件: {file_path}\n```\n{numbered}\n```",
             )
 
+        except PermissionError as e:
+            return ToolResult(
+                success=False,
+                output="",
+                error=str(e),
+            )
         except Exception as e:
             return ToolResult(
                 success=False,
@@ -90,16 +123,8 @@ class FileReadTool(Tool):
                 error=f"读取失败: {str(e)}",
             )
 
-    def _is_dangerous_path(self, path: Path) -> bool:
-        """检查是否是危险路径"""
-        # 检查是否在 .env 文件中
-        env_path = Path(".env").resolve()
-        if path == env_path:
-            return True
-        return False
 
-
-class FileWriteTool(Tool):
+class FileWriteTool(WorkspaceFileTool):
     """写入文件内容"""
 
     name = "file_write"
@@ -127,22 +152,15 @@ class FileWriteTool(Tool):
         append: bool = False,
     ) -> ToolResult:
         try:
-            file_path = Path(path).resolve()
-
-            # 安全检查
-            if self._is_dangerous_path(file_path):
-                return ToolResult(
-                    success=False,
-                    output="",
-                    error="没有权限写入该路径",
-                )
+            file_path = self._resolve_workspace_path(path)
 
             # 确保父目录存在
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
             # 写入文件
             mode = "a" if append else "w"
-            file_path.write_text(content, encoding="utf-8")
+            with file_path.open(mode, encoding="utf-8") as f:
+                f.write(content)
 
             action = "追加到" if append else "写入"
             return ToolResult(
@@ -150,16 +168,15 @@ class FileWriteTool(Tool):
                 output=f"✓ 已成功{action}文件: {file_path}",
             )
 
+        except PermissionError as e:
+            return ToolResult(
+                success=False,
+                output="",
+                error=str(e),
+            )
         except Exception as e:
             return ToolResult(
                 success=False,
                 output="",
                 error=f"写入失败: {str(e)}",
             )
-
-    def _is_dangerous_path(self, path: Path) -> bool:
-        """检查是否是危险路径"""
-        env_path = Path(".env").resolve()
-        if path == env_path:
-            return True
-        return False
